@@ -1,13 +1,13 @@
-build-server: bin/ server.c
-	gcc server.c -o ./bin/server
+build-server: bin/ src/transport.c
+	gcc ./src/transport.c -o ./bin/transport
 
-build-client: bin/ client.c
-	gcc client.c -o ./bin/client
+build-client: bin/ src/client.c
+	gcc ./src/client.c -o ./bin/client
 
 build: build-server build-client
 
-run-server: ./bin/server
-	./bin/server
+run-server:
+	./bin/transport
 
-run-client: ./bin/server
+run-client:
 	./bin/client
