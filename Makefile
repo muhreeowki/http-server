@@ -1,8 +1,8 @@
-build-server: bin/ src/transport.c
-	gcc ./src/transport.c -o ./bin/transport
+build-server: bin/ src/server/transport.c
+	gcc ./src/server/transport.c ./src/server/handlers.c ./src/server/main.c ./src/server/transport.h -o ./bin/transport
 
-build-client: bin/ src/client.c
-	gcc ./src/client.c -o ./bin/client
+build-client: bin/ src/client/client.c
+	gcc ./src/client/client.c -o ./bin/client
 
 build: build-server build-client
 
