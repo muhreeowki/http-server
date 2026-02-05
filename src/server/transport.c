@@ -79,7 +79,10 @@ int start_server(struct transport *t) {
   return 0;
 }
 
-void close_server(struct transport *t) { close(t->sock_fd); }
+void close_server(struct transport *t) {
+  close(t->sock_fd);
+  free(t);
+}
 
 int socket_bind(struct addrinfo *p) {
   int sock_fd = -1, yes = 1;
@@ -141,7 +144,8 @@ int accept_loop(struct transport *t) {
     // Create child process to handle connection
     switch (fork()) {
     case 0: // child
-      t->handler(conn_sock_fd, conn_str);
+      if (t->handler(conn_sock_fd, conn_str) == -1)
+        perror("transport_handler");
       break;
     case -1: // error
       return -1;

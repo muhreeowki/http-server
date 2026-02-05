@@ -3,6 +3,8 @@
 
 #include <netdb.h>
 
+#define MAX_MSG_SIZE 1024
+
 typedef int conn_handler(int conn_sock_fd, char *conn_str);
 
 struct transport {
@@ -14,10 +16,20 @@ struct transport {
                          // different application layer protocals.
 };
 
+struct http_request {
+  char *method;
+  char *target;
+  char *version;
+  char **headers;
+  char *body;
+};
+
 // SERVER FUNCTIONS
 struct transport *new_http_server(char *port);
 int start_server(struct transport *t);
 void close_server(struct transport *t);
+struct http_request *parse_http_request(char *raw, struct http_request *dest);
+void print_http_request(struct http_request *req);
 
 // HANDLER FUNCTIONS
 int nop_handler(int conn_sock_fd, char *conn_str);

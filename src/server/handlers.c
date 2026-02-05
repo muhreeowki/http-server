@@ -1,3 +1,4 @@
+#include "transport.h"
 #include <arpa/inet.h>
 #include <asm-generic/socket.h>
 #include <netdb.h>
@@ -18,4 +19,91 @@ int nop_handler(int conn_sock_fd, char *conn_str) {
 
   printf("server: handled and closed connection from %s\n", conn_str);
   exit(0);
+}
+
+int http_conn_handler(int conn_sock_fd, char *conn_str) {
+  // TODO:
+  // 1. handle a handshake with the client using send()
+  // 2. read the request message from the connection using recv()
+  // 3. parse the message into a http request
+  // 4. parse the http request into a router function
+  //    - router function will pass the request to the specific path/url/target
+  //    handler.
+}
+
+struct http_request *parse_http_request(char *raw, struct http_request *req) {
+  int len = strlen(raw), line_count = 0;
+  char *temp, *http_data = raw, *http_body = NULL, *first_line = NULL,
+              *delim = "\n\n"; // The empty line between the data and the body
+
+  // get the body first by spliting data into two parts, the request data and
+  // the request body
+  for (int i = 0; i < len; i++) {
+    if (*(raw + i) == '\n') {
+      line_count++;
+      if (i + 1 < len && *(raw + i + 1) == '\n') {
+        *(raw + ++i) = '\0';
+        if (i + 1 < len) {
+          http_body = raw + i + 1;
+        }
+        break;
+      }
+    }
+  }
+  req->body = http_body;
+
+  // Get the headers from the http data.
+  // First allocate memory for the headers
+  if ((req->headers = malloc(sizeof(char *) * line_count + 1)) == NULL) {
+    perror("malloc");
+    return NULL;
+  }
+
+  // Now split up the request data;
+  // Get the first line
+  if ((first_line = strtok(http_data, "\n")) == NULL) {
+    return NULL;
+  }
+  // NOTE: This might be a redundant check
+  if (strlen(first_line) == 0) {
+    return NULL; // bad request
+  }
+
+  // loop through the lines if any
+  int i = 0;
+  *(req->headers) = NULL;
+  while (i < line_count) {
+    if ((temp = strtok(NULL, "\n")) == NULL)
+      break;
+    *(req->headers + i++) = strdup(temp);
+    *(req->headers + i) = NULL;
+  }
+
+  // Split up the first line into <method> <target> <protocol-version>
+  // Extract METHOD
+  if ((req->method = strtok(first_line, " ")) == NULL) {
+    return NULL; // bad request
+  }
+  // Extract PATH or URL Destination
+  if ((req->target = strtok(NULL, " ")) == NULL) {
+    return NULL; // bad request
+  }
+  // Extract HTTP version
+  if ((req->version = strtok(NULL, " ")) == NULL) {
+    return NULL; // bad request
+  }
+
+  return req;
+}
+
+void print_http_request(struct http_request *req) {
+  printf("start line:\n");
+  printf("\tmethod: %s\n\ttarget: %s\n\tversion: %s\n\n", req->method,
+         req->target, req->version);
+  printf("headers:\n");
+  for (int i = 0; *(req->headers + i) != NULL; i++) {
+    printf("\t%s\n", *(req->headers + i));
+  }
+  printf("\nbody:\n------------------------------\n%s\n",
+         req->body == NULL ? "no body" : req->body);
 }
