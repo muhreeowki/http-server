@@ -28,7 +28,7 @@ struct transport *new_http_server(char *port) {
   hints.ai_flags = AI_PASSIVE;
 
   // TODO: USE HTTP HANDLER
-  return new_transport(NULL, port, &hints, &nop_handler);
+  return new_transport(NULL, port, &hints, &http_handler);
 }
 
 struct transport *new_transport(char *host, char *port, struct addrinfo *hints,

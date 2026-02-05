@@ -21,17 +21,27 @@ int nop_handler(int conn_sock_fd, char *conn_str) {
   exit(0);
 }
 
-int http_conn_handler(int conn_sock_fd, char *conn_str) {
+int http_handler(int conn_sock_fd, char *conn_str) {
+  char msg[MAX_MSG_SIZE];
+  int len;
+  struct http_request request;
   // TODO:
   // 1. handle a handshake with the client using send()
   // 2. read the request message from the connection using recv()
+  if ((len = recv(conn_sock_fd, &msg, MAX_MSG_SIZE - 1, 0)) == -1)
+    return -1;
+  msg[len] = '\0';
+
   // 3. parse the message into a http request
+  http_strtoreq(msg, &request);
+  print_http_request(&request);
   // 4. parse the http request into a router function
   //    - router function will pass the request to the specific path/url/target
   //    handler.
+  // 5. write a http response
 }
 
-struct http_request *parse_http_request(char *raw, struct http_request *req) {
+struct http_request *http_strtoreq(char *raw, struct http_request *req) {
   int len = strlen(raw), line_count = 0;
   char *temp, *http_data = raw, *http_body = NULL, *first_line = NULL,
               *delim = "\n\n"; // The empty line between the data and the body
@@ -106,4 +116,48 @@ void print_http_request(struct http_request *req) {
   }
   printf("\nbody:\n------------------------------\n%s\n",
          req->body == NULL ? "no body" : req->body);
+}
+
+char *http_resptostr(struct http_response *resp) {
+  char *resp_str = NULL, *first_line = NULL, *headers_str = NULL, *temp = NULL;
+  int headers_len = 0, body_len = 0, first_line_len = 0, resp_str_len;
+
+  // Count the leanth of all the data
+  first_line_len =
+      sizeof(int) + strlen(resp->status_msg) + strlen(resp->version);
+  body_len = strlen(resp->body);
+  for (int i = 0; *(resp->headers + i) != NULL; i++)
+    headers_len += strlen(*(resp->headers + i));
+  resp_str_len = first_line_len + body_len + headers_len + 2;
+
+  // Allocate memory
+  if ((headers_str = malloc(sizeof(char) * headers_len)) == NULL) {
+    return NULL;
+  }
+  if ((first_line = malloc(sizeof(char) * first_line_len)) == NULL) {
+    return NULL;
+  }
+  if ((resp_str = malloc(sizeof(char) * resp_str_len)) == NULL) {
+    return NULL;
+  }
+
+  // Write the first line string
+  sprintf(first_line, "%s %d %s\n", resp->version, resp->status_code,
+          resp->status_msg);
+  resp_str = strcat(resp_str, first_line);
+
+  // Write the headers
+  for (int i = 0; *(resp->headers + i) != NULL; i++) {
+    temp = *(resp->headers + i);
+    headers_str = strcat(headers_str, temp);
+  }
+  resp_str = strcat(resp_str, headers_str);
+
+  // Write the body
+  if (resp->body != NULL) {
+    resp_str = strcat(resp_str, "\n"); // empty line
+    resp_str = strcat(resp_str, resp->body);
+  }
+
+  return resp_str;
 }

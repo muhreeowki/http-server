@@ -24,14 +24,26 @@ struct http_request {
   char *body;
 };
 
+struct http_response {
+  char *version;
+  char *status_msg;
+  int status_code;
+  char **headers;
+  char *body;
+};
+
 // SERVER FUNCTIONS
 struct transport *new_http_server(char *port);
 int start_server(struct transport *t);
 void close_server(struct transport *t);
-struct http_request *parse_http_request(char *raw, struct http_request *dest);
-void print_http_request(struct http_request *req);
 
 // HANDLER FUNCTIONS
 int nop_handler(int conn_sock_fd, char *conn_str);
+
+int http_handler(int conn_sock_fd, char *conn_str);
+struct http_request *http_strtoreq(char *raw, struct http_request *dest);
+char *http_resptostr(struct http_response *resp);
+void print_http_request(struct http_request *req);
+void print_http_response(struct http_response *resp);
 
 #endif // !TRANSPORT_H
