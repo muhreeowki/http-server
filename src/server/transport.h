@@ -17,19 +17,19 @@ struct transport {
 };
 
 struct http_request {
+  char *body;
   char *method;
   char *target;
   char *version;
   char **headers;
-  char *body;
 };
 
 struct http_response {
+  char *body;
   char *version;
+  char **headers;
   char *status_msg;
   int status_code;
-  char **headers;
-  char *body;
 };
 
 // SERVER FUNCTIONS
@@ -45,5 +45,6 @@ struct http_request *http_strtoreq(char *raw, struct http_request *dest);
 char *http_resptostr(struct http_response *resp);
 void print_http_request(struct http_request *req);
 void print_http_response(struct http_response *resp);
+int write_response(int conn_sock_fd, struct http_response *resp);
 
 #endif // !TRANSPORT_H

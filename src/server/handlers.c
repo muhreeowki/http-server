@@ -23,22 +23,37 @@ int nop_handler(int conn_sock_fd, char *conn_str) {
 
 int http_handler(int conn_sock_fd, char *conn_str) {
   char msg[MAX_MSG_SIZE];
-  int len;
-  struct http_request request;
+  int len, writen_len;
+  struct http_response resp;
+  struct http_request req;
+
   // TODO:
   // 1. handle a handshake with the client using send()
+
   // 2. read the request message from the connection using recv()
   if ((len = recv(conn_sock_fd, &msg, MAX_MSG_SIZE - 1, 0)) == -1)
     return -1;
   msg[len] = '\0';
 
   // 3. parse the message into a http request
-  http_strtoreq(msg, &request);
-  print_http_request(&request);
+  if ((http_strtoreq(msg, &req)) == NULL) {
+    fprintf(stderr, "bad request");
+    return -1;
+  }
+  print_http_request(&req);
+
   // 4. parse the http request into a router function
   //    - router function will pass the request to the specific path/url/target
   //    handler.
+
   // 5. write a http response
+
+  if ((writen_len = write_response(conn_sock_fd, &resp)) == -1) {
+    printf("failed to write response.");
+    return -1;
+  }
+
+  return 0;
 }
 
 struct http_request *http_strtoreq(char *raw, struct http_request *req) {
@@ -107,27 +122,31 @@ struct http_request *http_strtoreq(char *raw, struct http_request *req) {
 }
 
 void print_http_request(struct http_request *req) {
-  printf("start line:\n");
-  printf("\tmethod: %s\n\ttarget: %s\n\tversion: %s\n\n", req->method,
-         req->target, req->version);
-  printf("headers:\n");
+  printf("%s %s %s\n", req->method, req->target, req->version);
   for (int i = 0; *(req->headers + i) != NULL; i++) {
-    printf("\t%s\n", *(req->headers + i));
+    printf("%s\n", *(req->headers + i));
   }
-  printf("\nbody:\n------------------------------\n%s\n",
-         req->body == NULL ? "no body" : req->body);
+  printf("%s\n", req->body == NULL ? "" : req->body);
 }
 
 char *http_resptostr(struct http_response *resp) {
-  char *resp_str = NULL, *first_line = NULL, *headers_str = NULL, *temp = NULL;
+  char *resp_str = NULL, *first_line = NULL, *headers_str = NULL, *temp = NULL,
+       buf[10];
   int headers_len = 0, body_len = 0, first_line_len = 0, resp_str_len;
+
+  if (resp->version == NULL || resp->status_msg == NULL) {
+    fprintf(stderr, "bad response object.\n");
+    return NULL;
+  }
 
   // Count the leanth of all the data
   first_line_len =
       sizeof(int) + strlen(resp->status_msg) + strlen(resp->version);
   body_len = strlen(resp->body);
-  for (int i = 0; *(resp->headers + i) != NULL; i++)
-    headers_len += strlen(*(resp->headers + i));
+  if ((resp->headers) != NULL) {
+    for (int i = 0; *((resp->headers) + i) != NULL; i++)
+      headers_len += strlen(*((resp->headers) + i));
+  }
   resp_str_len = first_line_len + body_len + headers_len + 2;
 
   // Allocate memory
@@ -142,16 +161,17 @@ char *http_resptostr(struct http_response *resp) {
   }
 
   // Write the first line string
-  sprintf(first_line, "%s %d %s\n", resp->version, resp->status_code,
-          resp->status_msg);
-  resp_str = strcat(resp_str, first_line);
+  // sprintf(first_line, "%s ", resp->version);
+  // resp_str = strcat(resp_str, first_line);
 
   // Write the headers
-  for (int i = 0; *(resp->headers + i) != NULL; i++) {
-    temp = *(resp->headers + i);
-    headers_str = strcat(headers_str, temp);
+  if (resp->headers != NULL) {
+    for (int i = 0; *((resp->headers) + i) != NULL; i++) {
+      temp = *((resp->headers) + i);
+      headers_str = strcat(headers_str, temp);
+    }
+    resp_str = strcat(resp_str, headers_str);
   }
-  resp_str = strcat(resp_str, headers_str);
 
   // Write the body
   if (resp->body != NULL) {
@@ -160,4 +180,32 @@ char *http_resptostr(struct http_response *resp) {
   }
 
   return resp_str;
+}
+
+struct http_response *build_http_response(char *version, int code, char *msg,
+                                          char *body, char **headers) {
+  struct http_response *resp;
+
+  if ((resp = malloc(sizeof(struct http_response))) == NULL) {
+    perror("build_http_response");
+    return NULL;
+  }
+
+  resp->status_code = code;
+  resp->status_msg = msg;
+  resp->version = version;
+  resp->body = body;
+  resp->headers = headers;
+}
+
+int write_response(int conn_sock_fd, struct http_response *resp) {
+  char *resp_str = NULL;
+
+  if ((resp_str = http_resptostr(resp)) == NULL) {
+    printf("error converting respons to string.\n");
+    return -1;
+  }
+
+  printf("writing response:\n%s", resp_str);
+  return send(conn_sock_fd, resp_str, strlen(resp_str) + 1, 0);
 }
