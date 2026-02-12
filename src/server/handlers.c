@@ -3,6 +3,7 @@
 #include <asm-generic/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,10 +22,13 @@ int nop_handler(int conn_sock_fd, char *conn_str) {
   exit(0);
 }
 
+struct http_response *build_http_response(char *version, int code, char *msg,
+                                          char *body, char **headers);
+
 int http_handler(int conn_sock_fd, char *conn_str) {
   char msg[MAX_MSG_SIZE];
   int len, writen_len;
-  struct http_response resp;
+  struct http_response *resp;
   struct http_request req;
 
   // TODO:
@@ -42,13 +46,23 @@ int http_handler(int conn_sock_fd, char *conn_str) {
   }
   print_http_request(&req);
 
+  // TODO:
   // 4. parse the http request into a router function
   //    - router function will pass the request to the specific path/url/target
   //    handler.
 
+  // TODO:
   // 5. write a http response
 
-  if ((writen_len = write_response(conn_sock_fd, &resp)) == -1) {
+  char *headers[] = {
+      "Content-Type: text/plain",
+      NULL // sentinel
+  };
+
+  resp = build_http_response(strdup(req.version), 200, "ok",
+                             "<h1>Hello World!<h1>", headers);
+
+  if ((writen_len = write_response(conn_sock_fd, resp)) == -1) {
     printf("failed to write response.");
     return -1;
   }
@@ -86,7 +100,7 @@ struct http_request *http_strtoreq(char *raw, struct http_request *req) {
 
   // Now split up the request data;
   // Get the first line
-  if ((first_line = strtok(http_data, "\n")) == NULL) {
+  if ((first_line = strtok(http_data, "\r\n")) == NULL) {
     return NULL;
   }
   // NOTE: This might be a redundant check
@@ -98,7 +112,7 @@ struct http_request *http_strtoreq(char *raw, struct http_request *req) {
   int i = 0;
   *(req->headers) = NULL;
   while (i < line_count) {
-    if ((temp = strtok(NULL, "\n")) == NULL)
+    if ((temp = strtok(NULL, "\r\n")) == NULL)
       break;
     *(req->headers + i++) = strdup(temp);
     *(req->headers + i) = NULL;
@@ -114,7 +128,7 @@ struct http_request *http_strtoreq(char *raw, struct http_request *req) {
     return NULL; // bad request
   }
   // Extract HTTP version
-  if ((req->version = strtok(NULL, " ")) == NULL) {
+  if ((req->version = strtok(NULL, " \r\n")) == NULL) {
     return NULL; // bad request
   }
 
@@ -130,56 +144,54 @@ void print_http_request(struct http_request *req) {
 }
 
 char *http_resptostr(struct http_response *resp) {
-  char *resp_str = NULL, *first_line = NULL, *headers_str = NULL, *temp = NULL,
-       buf[10];
-  int headers_len = 0, body_len = 0, first_line_len = 0, resp_str_len;
-
-  if (resp->version == NULL || resp->status_msg == NULL) {
-    fprintf(stderr, "bad response object.\n");
+  if (!resp || !resp->version || !resp->status_msg) {
+    printf("missing response struct.\n");
     return NULL;
   }
 
-  // Count the leanth of all the data
-  first_line_len =
-      sizeof(int) + strlen(resp->status_msg) + strlen(resp->version);
-  body_len = strlen(resp->body);
-  if ((resp->headers) != NULL) {
-    for (int i = 0; *((resp->headers) + i) != NULL; i++)
-      headers_len += strlen(*((resp->headers) + i));
-  }
-  resp_str_len = first_line_len + body_len + headers_len + 2;
+  // Status line size
+  size_t size = strlen(resp->version) + strlen(resp->status_msg) +
+                7; // 7 = 2 spaces, 3 integers, 1 \n and 1 \r
+  size_t body_len = resp->body ? strlen(resp->body) : 0;
 
-  // Allocate memory
-  if ((headers_str = malloc(sizeof(char) * headers_len)) == NULL) {
-    return NULL;
-  }
-  if ((first_line = malloc(sizeof(char) * first_line_len)) == NULL) {
-    return NULL;
-  }
-  if ((resp_str = malloc(sizeof(char) * resp_str_len)) == NULL) {
-    return NULL;
-  }
-
-  // Write the first line string
-  // sprintf(first_line, "%s ", resp->version);
-  // resp_str = strcat(resp_str, first_line);
-
-  // Write the headers
-  if (resp->headers != NULL) {
-    for (int i = 0; *((resp->headers) + i) != NULL; i++) {
-      temp = *((resp->headers) + i);
-      headers_str = strcat(headers_str, temp);
+  // Headers size
+  if (resp->headers) {
+    for (int i = 0; resp->headers[i] != NULL; i++) {
+      size += strlen(resp->headers[i]) + 2; // +2 for \r\n
     }
-    resp_str = strcat(resp_str, headers_str);
   }
 
-  // Write the body
-  if (resp->body != NULL) {
-    resp_str = strcat(resp_str, "\n"); // empty line
-    resp_str = strcat(resp_str, resp->body);
+  // Body size
+  size += body_len;
+  size += 3; // 2 for blank line, 1 for null
+
+  char *buf = malloc(size);
+  if (!buf) {
+    perror("resptostr");
+    return NULL;
   }
 
-  return resp_str;
+  int written = 0;
+  // Write first line
+  written += snprintf(buf, size, "%s %d %s\r\n", resp->version,
+                      resp->status_code, resp->status_msg);
+
+  // Write the Headers
+  if (resp->headers) {
+    for (int i = 0; resp->headers[i] != NULL; i++)
+      written += snprintf(buf + written, size, "%s\r\n", resp->headers[i]);
+  }
+
+  // Write blank line
+  written += snprintf(buf + written, size, "\r\n");
+
+  // Write body
+  if (resp->body) {
+    memcpy(buf + written, resp->body, body_len);
+  }
+  buf[written + body_len] = '\0';
+
+  return buf;
 }
 
 struct http_response *build_http_response(char *version, int code, char *msg,
@@ -196,6 +208,8 @@ struct http_response *build_http_response(char *version, int code, char *msg,
   resp->version = version;
   resp->body = body;
   resp->headers = headers;
+
+  return resp;
 }
 
 int write_response(int conn_sock_fd, struct http_response *resp) {

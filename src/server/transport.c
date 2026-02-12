@@ -68,7 +68,7 @@ int start_server(struct transport *t) {
     return -1;
   }
 
-  printf("server listening for connections on port %s...\n", t->port);
+  printf("server listening for connections on port %s...\n\n", t->port);
 
   // accept connections using accept()
   if (accept_loop(t) == -1) {
@@ -146,6 +146,7 @@ int accept_loop(struct transport *t) {
     case 0: // child
       if (t->handler(conn_sock_fd, conn_str) == -1)
         perror("transport_handler");
+      close(conn_sock_fd);
       break;
     case -1: // error
       return -1;
