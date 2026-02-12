@@ -55,12 +55,15 @@ int http_handler(int conn_sock_fd, char *conn_str) {
   // 5. write a http response
 
   char *headers[] = {
-      "Content-Type: text/plain",
+      "Content-Type: text/html",
       NULL // sentinel
   };
 
-  resp = build_http_response(strdup(req.version), 200, "ok",
-                             "<h1>Hello World!<h1>", headers);
+  resp = build_http_response(
+      strdup(req.version), 200, "ok",
+      "<html><head><title>Hello World</title></head><body><h1>Hello "
+      "World!<h1></body></html>",
+      headers);
 
   if ((writen_len = write_response(conn_sock_fd, resp)) == -1) {
     printf("failed to write response.");
