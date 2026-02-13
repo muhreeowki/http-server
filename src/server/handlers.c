@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <wait.h>
 
+// Basic Test handler
 int nop_handler(int conn_sock_fd, char *conn_str) {
   char payload[] = {"hello there from my C server."};
   if (send(conn_sock_fd, payload, strlen(payload), 0) == -1)
@@ -22,71 +23,22 @@ int nop_handler(int conn_sock_fd, char *conn_str) {
   exit(0);
 }
 
-struct http_response *build_http_response(char *version, int code, char *msg,
-                                          char *body, char **headers);
-
-int http_handler(int conn_sock_fd, char *conn_str) {
-  char msg[MAX_MSG_SIZE];
-  int len, writen_len;
-  struct http_response *resp;
-  struct http_request req;
-
-  // TODO:
-  // 1. handle a handshake with the client using send()
-
-  // 2. read the request message from the connection using recv()
-  if ((len = recv(conn_sock_fd, &msg, MAX_MSG_SIZE - 1, 0)) == -1)
-    return -1;
-  msg[len] = '\0';
-
-  // 3. parse the message into a http request
-  if ((http_strtoreq(msg, &req)) == NULL) {
-    fprintf(stderr, "bad request");
-    return -1;
-  }
-  print_http_request(&req);
-
-  // TODO:
-  // 4. parse the http request into a router function
-  //    - router function will pass the request to the specific path/url/target
-  //    handler.
-
-  // TODO:
-  // 5. write a http response
-
-  char *headers[] = {
-      "Content-Type: text/html",
-      NULL // sentinel
-  };
-
-  resp = build_http_response(
-      strdup(req.version), 200, "ok",
-      "<html><head><title>Hello World</title></head><body><h1>Hello "
-      "World!<h1></body></html>",
-      headers);
-
-  if ((writen_len = write_response(conn_sock_fd, resp)) == -1) {
-    printf("failed to write response.");
-    return -1;
-  }
-
-  return 0;
-}
-
-struct http_request *http_strtoreq(char *raw, struct http_request *req) {
-  int len = strlen(raw), line_count = 0;
-  char *temp, *http_data = raw, *http_body = NULL, *first_line = NULL,
+// HTTP HANDLER
+struct http_request *http_strtoreq(char *req_str, struct http_request *req) {
+  int len = strlen(req_str), line_count = 0;
+  char *temp, *http_data = req_str, *http_body = NULL, *first_line = NULL,
               *delim = "\n\n"; // The empty line between the data and the body
 
+  req->req_str = strdup(req_str);
   // get the body first by spliting data into two parts, the request data and
   // the request body
   for (int i = 0; i < len; i++) {
-    if (*(raw + i) == '\n') {
+    if (*(req_str + i) == '\n') {
       line_count++;
-      if (i + 1 < len && *(raw + i + 1) == '\n') {
-        *(raw + ++i) = '\0';
+      if (i + 1 < len && *(req_str + i + 1) == '\n') {
+        *(req_str + ++i) = '\0';
         if (i + 1 < len) {
-          http_body = raw + i + 1;
+          http_body = req_str + i + 1;
         }
         break;
       }
@@ -138,12 +90,24 @@ struct http_request *http_strtoreq(char *raw, struct http_request *req) {
   return req;
 }
 
-void print_http_request(struct http_request *req) {
-  printf("%s %s %s\n", req->method, req->target, req->version);
-  for (int i = 0; *(req->headers + i) != NULL; i++) {
-    printf("%s\n", *(req->headers + i));
+void http_printreq(struct http_request *req) { printf("%s\n", req->req_str); }
+
+struct http_response *build_http_response(char *version, int code, char *msg,
+                                          char *body, char **headers) {
+  struct http_response *resp;
+
+  if ((resp = malloc(sizeof(struct http_response))) == NULL) {
+    perror("build_http_response");
+    return NULL;
   }
-  printf("%s\n", req->body == NULL ? "" : req->body);
+
+  resp->status_code = code;
+  resp->status_msg = msg;
+  resp->version = version;
+  resp->body = body;
+  resp->headers = headers;
+
+  return resp;
 }
 
 char *http_resptostr(struct http_response *resp) {
@@ -174,8 +138,8 @@ char *http_resptostr(struct http_response *resp) {
     return NULL;
   }
 
-  int written = 0;
   // Write first line
+  int written = 0;
   written += snprintf(buf, size, "%s %d %s\r\n", resp->version,
                       resp->status_code, resp->status_msg);
 
@@ -197,32 +161,74 @@ char *http_resptostr(struct http_response *resp) {
   return buf;
 }
 
-struct http_response *build_http_response(char *version, int code, char *msg,
-                                          char *body, char **headers) {
+int recv_http_request(int conn_sock_fd, struct http_request *req) {
+  char buf[MAX_MSG_SIZE];
+  int len, writen_len;
   struct http_response *resp;
 
-  if ((resp = malloc(sizeof(struct http_response))) == NULL) {
-    perror("build_http_response");
-    return NULL;
+  // 2. read the request message from the connection using recv()
+  if ((len = recv(conn_sock_fd, &buf, MAX_MSG_SIZE - 1, 0)) == -1)
+    return -1;
+  buf[len] = '\0';
+
+  // 3. parse the message into a http request
+  if ((http_strtoreq(buf, req)) == NULL) {
+    fprintf(stderr, "bad request");
+    return -1;
   }
 
-  resp->status_code = code;
-  resp->status_msg = msg;
-  resp->version = version;
-  resp->body = body;
-  resp->headers = headers;
-
-  return resp;
+  return len;
 }
 
-int write_response(int conn_sock_fd, struct http_response *resp) {
+int send_http_response(int conn_sock_fd, struct http_response *resp) {
   char *resp_str = NULL;
 
+  // Convert to string
   if ((resp_str = http_resptostr(resp)) == NULL) {
     printf("error converting respons to string.\n");
     return -1;
   }
 
+  // Send the data
   printf("writing response:\n%s", resp_str);
   return send(conn_sock_fd, resp_str, strlen(resp_str) + 1, 0);
+}
+
+int http_handler(int conn_sock_fd, char *conn_str) {
+  int writen_len;
+  struct http_response *resp;
+  struct http_request req;
+
+  // read and parse http request
+  if ((recv_http_request(conn_sock_fd, &req)) == -1) {
+    fprintf(stderr, "recv_http_request: failed to read http request.\n");
+    return -1;
+  }
+
+  // log http request
+  http_printreq(&req);
+
+  // TODO:
+  // parse the http request into a router function
+  //    - router function will pass the request to the specific path/url/target
+  //    handler.
+  //    - target handler will write a http response
+
+  char *headers[] = {
+      "Content-Type: text/html",
+      NULL // sentinel
+  };
+
+  resp = build_http_response(
+      strdup(req.version), 200, "ok",
+      "<html><head><title>Hello World</title></head><body><h1>Hello "
+      "World!<h1></body></html>",
+      headers);
+
+  if ((writen_len = send_http_response(conn_sock_fd, resp)) == -1) {
+    printf("failed to write response.");
+    return -1;
+  }
+
+  return 0;
 }

@@ -22,6 +22,7 @@ struct http_request {
   char *target;
   char *version;
   char **headers;
+  char *req_str;
 };
 
 struct http_response {
@@ -39,12 +40,6 @@ void close_server(struct transport *t);
 
 // HANDLER FUNCTIONS
 int nop_handler(int conn_sock_fd, char *conn_str);
-
 int http_handler(int conn_sock_fd, char *conn_str);
-struct http_request *http_strtoreq(char *raw, struct http_request *dest);
-char *http_resptostr(struct http_response *resp);
-void print_http_request(struct http_request *req);
-void print_http_response(struct http_response *resp);
-int write_response(int conn_sock_fd, struct http_response *resp);
 
 #endif // !TRANSPORT_H
