@@ -3,20 +3,24 @@
 #include <stdlib.h>
 
 int main(int argc, char *argv[]) {
-  struct transport *server;
+  struct httpServer *server;
 
   if (argc != 2) {
     fprintf(stderr, "usage: %s hostname\n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  if ((server = new_http_server(argv[1])) == NULL) {
+  struct httpRouter router;
+  initializeHttpRouter(&router);
+
+  if ((server = newHTTPServer(argv[1], &router)) == NULL) {
     exit(1);
   }
-  if (start_server(server) == -1) {
+
+  if (startHTTPServer(server) == -1) {
     exit(EXIT_FAILURE);
   }
 
-  close_server(server);
+  closeHTTPServer(server);
   return EXIT_SUCCESS;
 }

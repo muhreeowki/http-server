@@ -13,26 +13,12 @@
 
 #include "transport.h"
 
-void *get_in_addr(struct sockaddr *sa);
-void sigchld_handler(int s);
-int socket_bind(struct addrinfo *p);
-int accept_loop(struct transport *t);
-struct transport *new_transport(char *host, char *service,
-                                struct addrinfo *hints, conn_handler *handler);
+void *getInAddr(struct sockaddr *sa);
+void sigchldHandler(int s);
+int socketBind(struct addrinfo *p);
+int acceptloop(struct transport *t);
 
-struct transport *new_http_server(char *port) {
-  struct addrinfo hints;
-
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;
-
-  // TODO: USE HTTP HANDLER
-  return new_transport(NULL, port, &hints, &http_handler);
-}
-
-struct transport *new_transport(char *host, char *port, struct addrinfo *hints,
-                                conn_handler *handler) {
+struct transport *newTransport(char *host, char *port, struct addrinfo *hints) {
   int gai_status;
   struct addrinfo *servinfo;
   struct transport *t;
@@ -42,7 +28,6 @@ struct transport *new_transport(char *host, char *port, struct addrinfo *hints,
     return NULL;
   }
 
-  t->handler = handler;
   t->port = port;
 
   if ((gai_status = getaddrinfo(host, port, hints, &servinfo) != 0)) {
@@ -50,7 +35,7 @@ struct transport *new_transport(char *host, char *port, struct addrinfo *hints,
     return NULL;
   }
 
-  if ((t->sock_fd = socket_bind(servinfo)) == -1) {
+  if ((t->sock_fd = socketBind(servinfo)) == -1) {
     fprintf(stderr, "server error: failed to bind\n");
     freeaddrinfo(servinfo);
     return NULL;
@@ -61,7 +46,7 @@ struct transport *new_transport(char *host, char *port, struct addrinfo *hints,
   return t;
 }
 
-int start_server(struct transport *t) {
+int startServer(struct transport *t) {
   // listen on the socket using listen()
   if (listen(t->sock_fd, 10) == -1) {
     perror("server: listen");
@@ -71,7 +56,7 @@ int start_server(struct transport *t) {
   printf("server listening for connections on port %s...\n\n", t->port);
 
   // accept connections using accept()
-  if (accept_loop(t) == -1) {
+  if (acceptloop(t) == -1) {
     perror("server: accept_loop");
     return -1;
   }
@@ -79,12 +64,37 @@ int start_server(struct transport *t) {
   return 0;
 }
 
-void close_server(struct transport *t) {
+void closeServer(struct transport *t) {
   close(t->sock_fd);
   free(t);
 }
 
-int socket_bind(struct addrinfo *p) {
+struct httpServer *newHTTPServer(char *port, struct httpRouter *router) {
+  struct addrinfo hints;
+
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_PASSIVE;
+
+  struct transport *trnsprt = newTransport(NULL, port, &hints);
+  trnsprt->prtcl_func = &http_protocal;
+
+  struct httpServer *server = malloc(sizeof(struct httpServer));
+  if (!server) {
+    perror("newHTTPServer");
+    return NULL;
+  }
+
+  server->trnsprt = trnsprt;
+  server->router = router;
+
+  return server;
+}
+
+int startHTTPServer(struct httpServer *s) { return startServer(s->trnsprt); }
+void closeHTTPServer(struct httpServer *s) { return closeServer(s->trnsprt); }
+
+int socketBind(struct addrinfo *p) {
   int sock_fd = -1, yes = 1;
   // Loop through the gai results and connect to the first one you can
   for (; p != NULL; p = p->ai_next) {
@@ -111,7 +121,7 @@ int socket_bind(struct addrinfo *p) {
   return sock_fd;
 }
 
-int accept_loop(struct transport *t) {
+int acceptloop(struct transport *t) {
   int conn_sock_fd;
   socklen_t sin_size;
   char conn_str[INET6_ADDRSTRLEN];
@@ -120,7 +130,7 @@ int accept_loop(struct transport *t) {
   struct sigaction sa;
 
   // Handle sigaction
-  sa.sa_handler = sigchld_handler;
+  sa.sa_handler = sigchldHandler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_RESTART;
   if (sigaction(SIGCHLD, &sa, NULL) == -1) {
@@ -137,15 +147,15 @@ int accept_loop(struct transport *t) {
       continue;
     }
 
-    inet_ntop(conn_addr.ss_family, get_in_addr((struct sockaddr *)&conn_addr),
+    inet_ntop(conn_addr.ss_family, getInAddr((struct sockaddr *)&conn_addr),
               conn_str, sizeof(conn_str));
     printf("server: accepted connection from %s\n", conn_str);
 
     // Create child process to handle connection
     switch (fork()) {
     case 0: // child
-      if (t->handler(conn_sock_fd, conn_str) == -1)
-        perror("transport_handler");
+      if (t->prtcl_func(conn_sock_fd, conn_str) == -1)
+        perror("protocalFunc");
       close(conn_sock_fd);
       break;
     case -1: // error
@@ -157,7 +167,7 @@ int accept_loop(struct transport *t) {
   return 0;
 }
 
-void sigchld_handler(int s) {
+void sigchldHandler(int s) {
   (void)s; // quiet unused variable warning
 
   // waitpid() might overwrite errno, so we save and restore it:
@@ -169,7 +179,7 @@ void sigchld_handler(int s) {
   errno = saved_errno;
 }
 
-void *get_in_addr(struct sockaddr *sa) {
+void *getInAddr(struct sockaddr *sa) {
   if (sa->sa_family == AF_INET) {
     return &(((struct sockaddr_in *)sa)->sin_addr);
   }
