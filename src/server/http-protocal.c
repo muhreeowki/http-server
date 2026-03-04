@@ -26,7 +26,6 @@ void initializeHttpRouter(struct httpRouter *router) {
 
   router->arr = (struct routeHandler **)malloc(sizeof(struct routeHandler) *
                                                router->capacity);
-
   return;
 }
 
@@ -67,6 +66,7 @@ int newRouteHandler(struct httpRouter *router, char *route,
     router->arr[bucketIndex] = newHandler;
   }
 
+  printf("routes[%d] = '/home'\n", bucketIndex);
   return 0;
 }
 
@@ -75,9 +75,10 @@ routeHandlerFunc *getRouteHandler(struct httpRouter *router, char *route) {
   struct routeHandler *bucketHead = router->arr[bucketIndex];
 
   while (bucketHead != NULL) {
-
+    printf("key: %s\n", bucketHead->key);
     // Key is found in the hashMap
-    if (bucketHead->key == route) {
+    if (strcmp(bucketHead->key, route) == 0) {
+      printf("routes[%d] = '/home'\n", bucketIndex);
       return bucketHead->func;
     }
     bucketHead = bucketHead->next;
@@ -86,12 +87,20 @@ routeHandlerFunc *getRouteHandler(struct httpRouter *router, char *route) {
   return NULL;
 }
 
+void logHttpReq(struct httpRequest *req) {
+
+  printf("%p\n", req);
+  // printf("%s - %s\n", asctime(timeinfo), req->req_str);
+  printf("%s %s %s\n", req->version, req->method, req->target);
+}
+
 // HTTP HANDLER
 struct httpRequest *http_strtoreq(char *req_str, struct httpRequest *req) {
   int len = strlen(req_str), line_count = 0;
   char *temp, *http_data = req_str, *http_body = NULL, *first_line = NULL,
               *delim = "\n\n"; // The empty line between the data and the body
 
+  printf("%p\n", req);
   req->req_str = strdup(req_str);
   // get the body first by spliting data into two parts, the request data and
   // the request body
@@ -153,17 +162,6 @@ struct httpRequest *http_strtoreq(char *req_str, struct httpRequest *req) {
   return req;
 }
 
-void logHttpReq(struct httpRequest *req) {
-  time_t rawtime;
-  struct tm *timeinfo;
-
-  time(&rawtime);
-  timeinfo = localtime(&rawtime);
-
-  printf("%s %s %s %s\n", asctime(timeinfo), req->version, req->method,
-         req->target);
-}
-
 struct httpResponse *build_http_response(char *version, int code, char *msg,
                                          char *body, char **headers) {
   struct httpResponse *resp;
@@ -184,7 +182,7 @@ struct httpResponse *build_http_response(char *version, int code, char *msg,
 
 char *http_resptostr(struct httpResponse *resp) {
   if (!resp || !resp->version || !resp->status_msg) {
-    printf("missing response struct.\n");
+    fprintf(stderr, "missing response struct.\n");
     return NULL;
   }
 
@@ -236,8 +234,8 @@ char *http_resptostr(struct httpResponse *resp) {
 int recv_http_request(int conn_sock_fd, struct httpRequest *req) {
   char buf[MAX_MSG_SIZE];
   int len, writen_len;
-  struct httpResponse *resp;
 
+  printf("%p\n", req);
   // 2. read the request message from the connection using recv()
   if ((len = recv(conn_sock_fd, &buf, MAX_MSG_SIZE - 1, 0)) == -1)
     return -1;
@@ -252,32 +250,35 @@ int recv_http_request(int conn_sock_fd, struct httpRequest *req) {
   return len;
 }
 
-int send_http_response(int conn_sock_fd, struct httpResponse *resp) {
+int sendHTTPResponse(int conn_sock_fd, struct httpResponse *resp) {
   char *resp_str = NULL;
+  int status;
 
   // Convert to string
   if ((resp_str = http_resptostr(resp)) == NULL) {
-    printf("error converting respons to string.\n");
+    printf("error converting response to string.\n");
     return -1;
   }
 
   // Send the data
   printf("writing response:\n%s", resp_str);
-  return send(conn_sock_fd, resp_str, strlen(resp_str) + 1, 0);
+  status = send(conn_sock_fd, resp_str, strlen(resp_str) + 1, 0);
+  free(resp_str);
+  return status;
 }
 
-int route_request(struct httpRouter *r, struct httpRequest *req,
-                  struct httpResponse *res) {
-
+int routeRequest(struct httpRouter *r, struct httpRequest *req,
+                 struct httpResponse *res) {
   routeHandlerFunc *fn;
 
   if (!(fn = getRouteHandler(r, req->target))) {
     // TODO: Write Error to response
-    perror("invalid route");
+    fprintf(stderr, "invalid route '%s'\n", req->target);
     return -1;
   }
 
   if (fn(req, res) == -1) {
+    fprintf(stderr, "route handler returned an error.");
     return -1;
   }
 
@@ -285,26 +286,47 @@ int route_request(struct httpRouter *r, struct httpRequest *req,
 }
 
 // TODO: Figure out how to pass a router to this function.
-int http_protocal(int conn_sock_fd, char *conn_str) {
+
+static struct httpRouter *HTTP_ROUTER = NULL;
+
+int httpProtocal(int conn_sock_fd, char *conn_str) {
   int writen_len;
 
-  struct httpResponse resp;
-  struct httpRequest req;
+  struct httpResponse *resp;
+  struct httpRequest *req;
 
-  // static struct router http_router = {0, 0, NULL};
+  // check router availability
+  if (!HTTP_ROUTER) {
+    fprintf(stderr, "http router not found.");
+    return -1;
+  }
+
+  if ((req = malloc(sizeof(struct httpRequest))) == NULL) {
+    perror("httpProtocal");
+    return -1;
+  }
+
+  if ((resp = malloc(sizeof(struct httpResponse))) == NULL) {
+    perror("httpProtocal");
+    return -1;
+  }
 
   // read and parse http request
-  if ((recv_http_request(conn_sock_fd, &req)) == -1) {
+  if ((recv_http_request(conn_sock_fd, req)) == -1) {
     fprintf(stderr, "recv_http_request: failed to read http request.\n");
     return -1;
   }
 
   // log http request
-  logHttpReq(&req);
+  logHttpReq(req);
 
-  route_request(http_router, &req, &resp);
+  if (routeRequest(HTTP_ROUTER, req, resp) == -1) {
+    return -1;
+  }
 
-  if ((writen_len = send_http_response(conn_sock_fd, &resp)) == -1) {
+  printf("successfully routed request: %s\n", req->target);
+
+  if ((writen_len = sendHTTPResponse(conn_sock_fd, resp)) == -1) {
     printf("failed to write response.");
     return -1;
   }
@@ -312,7 +334,16 @@ int http_protocal(int conn_sock_fd, char *conn_str) {
   return 0;
 }
 
-int basic_protocal(int conn_sock_fd, char *conn_str) {
+protocalFunc *httpProtcalFunc(struct httpRouter *router) {
+  if (!router) {
+    return NULL;
+  }
+  HTTP_ROUTER = router;
+
+  return &httpProtocal;
+}
+
+int basicProtocalFunc(int conn_sock_fd, char *conn_str) {
   char payload[] = {"hello there from my C server."};
   if (send(conn_sock_fd, payload, strlen(payload), 0) == -1)
     perror("server: send");

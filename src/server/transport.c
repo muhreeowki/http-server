@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -30,7 +31,8 @@ struct transport *newTransport(char *host, char *port, struct addrinfo *hints) {
 
   t->port = port;
 
-  if ((gai_status = getaddrinfo(host, port, hints, &servinfo) != 0)) {
+  if ((gai_status = getaddrinfo(host, t->port, hints, &servinfo) != 0)) {
+    printf("%s %s\n", t->port, host);
     fprintf(stderr, "gai error: %s\n", gai_strerror(gai_status));
     return NULL;
   }
@@ -72,18 +74,24 @@ void closeServer(struct transport *t) {
 struct httpServer *newHTTPServer(char *port, struct httpRouter *router) {
   struct addrinfo hints;
 
+  memset(&hints, 0, sizeof hints);
+
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_PASSIVE;
 
   struct transport *trnsprt = newTransport(NULL, port, &hints);
-  trnsprt->prtcl_func = &http_protocal;
+  if (!trnsprt) {
+    return NULL;
+  }
 
   struct httpServer *server = malloc(sizeof(struct httpServer));
   if (!server) {
     perror("newHTTPServer");
     return NULL;
   }
+
+  trnsprt->prtcl_func = httpProtcalFunc(router);
 
   server->trnsprt = trnsprt;
   server->router = router;
@@ -155,7 +163,8 @@ int acceptloop(struct transport *t) {
     switch (fork()) {
     case 0: // child
       if (t->prtcl_func(conn_sock_fd, conn_str) == -1)
-        perror("protocalFunc");
+        fprintf(stderr,
+                "an error occured handling a connection using protocalFunc\n");
       close(conn_sock_fd);
       break;
     case -1: // error

@@ -37,6 +37,9 @@ struct httpRouter {
 
   struct routeHandler **arr;
 };
+int newRouteHandler(struct httpRouter *router, char *route,
+                    routeHandlerFunc *func);
+routeHandlerFunc *getRouteHandler(struct httpRouter *router, char *route);
 
 // Function to handle connections; This is where
 // you can setup different connection handlers that
@@ -62,7 +65,7 @@ void closeHTTPServer(struct httpServer *s);
 void initializeHttpRouter(struct httpRouter *router);
 
 // HANDLER FUNCTIONS
-int basic_protocal(int conn_sock_fd, char *conn_str);
-int http_protocal(int conn_sock_fd, char *conn_str);
+int basicProtocalFunc(int conn_sock_fd, char *conn_str);
+protocalFunc *httpProtcalFunc(struct httpRouter *router);
 
 #endif // !TRANSPORT_H
